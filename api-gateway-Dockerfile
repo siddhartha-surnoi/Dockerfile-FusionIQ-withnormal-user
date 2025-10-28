@@ -1,0 +1,75 @@
+# ================================================================================
+# PROJECT METADATA
+# ================================================================================
+# Project Name     : FusionIQ AIML Platform
+# Dockerfile Name  : API-Gateway-AIML-Microservice
+# Maintained By    : DevOps Team @ Surnoi Technology Pvt Ltd
+# Developed By     : AI/ML Development Team
+# Pipeline Owner   : Kanaparthi Siddhartha (DevOps Engineer)
+# Purpose          : Secure, multi-stage build for API Gateway microservice
+# ================================================================================
+
+# -------------------------
+# 1) BUILDER STAGE
+# -------------------------
+FROM python:3.11-slim AS builder
+
+# Set working directory
+WORKDIR /app
+
+# Install build dependencies only (not needed in runtime)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc g++ make default-libmysqlclient-dev pkg-config \
+ && rm -rf /var/lib/apt/lists/*
+
+# Create a virtual environment inside builder
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH" \
+    PIP_NO_CACHE_DIR=1
+
+# Upgrade pip and install Python dependencies
+COPY requirements.txt .
+RUN pip install --upgrade pip \
+    && pip install --prefer-binary -r requirements.txt
+
+# -------------------------
+# 2) RUNTIME STAGE
+# -------------------------
+FROM python:3.11-slim
+
+# Set working directory
+WORKDIR /app
+
+# Install minimal runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libmariadb3 \
+ && rm -rf /var/lib/apt/lists/*
+
+# -------------------------
+# Create non-root user (fusionIQ)
+# -------------------------
+RUN useradd -m -s /bin/bash fusionIQ \
+    && mkdir -p /app \
+    && chown -R fusionIQ:fusionIQ /app
+
+# Switch to the non-root user
+USER fusionIQ
+
+# Copy virtual environment from builder
+COPY --from=builder /opt/venv /opt/venv
+
+# Set environment variables
+ENV PATH="/opt/venv/bin:$PATH" \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+# Copy only application code (Dockerfile & .dockerignore already exclude unnecessary files)
+COPY --chown=fusionIQ:fusionIQ . .
+
+# Expose API port
+EXPOSE 8000
+
+# -------------------------
+# Start the API Gateway
+# -------------------------
+CMD ["python", "gateway.py"]
